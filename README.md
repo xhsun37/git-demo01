@@ -1,2 +1,2 @@
-# git-demo01
-github建立倉庫，clone到PC
+# final project
+工創賽車程式
