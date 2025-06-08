@@ -28,71 +28,104 @@ struct {
 } RemoteXY;
 #pragma pack(pop)
 
-#define IN1 14
-#define IN2 27
-#define IN3 26
-#define IN4 25
+#define IN1 14 // 左馬達 IN1
+#define IN2 27 // 左馬達 IN2
+#define IN3 26 // 右馬達 IN3
+#define IN4 25 // 右馬達 IN4
 
 void setup() {
   Serial.begin(115200);
   delay(100);
-  Serial.println("Starting RemoteXY init");
+  Serial.println("Starting BLE initialization...");
+
+  // 初始化 BLE 設備
+  BLEDevice::init("RemoteXY");
+  Serial.println("BLE Device initialized with name: RemoteXY");
+
+  // 初始化 RemoteXY
   RemoteXY_Init();
+  Serial.println("RemoteXY initialized");
+
+  // 設定馬達控制腳位
   pinMode(IN1, OUTPUT);
   pinMode(IN2, OUTPUT);
   pinMode(IN3, OUTPUT);
   pinMode(IN4, OUTPUT);
   stopMotors();
-  Serial.println("RemoteXY init done");
+  Serial.println("Motor pins configured. Setup complete.");
 }
 
 void loop() {
   RemoteXY_Handler();
   static uint8_t last_connect_flag = 0;
   static unsigned long last_print = 0;
+
+  // 檢查連線狀態變化
   if (RemoteXY.connect_flag != last_connect_flag) {
     last_connect_flag = RemoteXY.connect_flag;
     Serial.print("Connection: ");
     Serial.println(RemoteXY.connect_flag ? "Connected" : "Disconnected");
   }
-  if (millis() - last_print >= 500) { // Print every 500ms
+
+  // 每 500ms 輸出狀態
+  if (millis() - last_print >= 500) {
     last_print = millis();
     Serial.print("Connect Flag: "); Serial.println(RemoteXY.connect_flag);
-    Serial.print("X: "); Serial.print(RemoteXY.joystick_x);
+    Serial.print("Joystick X: "); Serial.print(RemoteXY.joystick_x);
     Serial.print(", Y: "); Serial.print(RemoteXY.joystick_y);
-    Serial.print(", Stop: "); Serial.println(RemoteXY.button_stop);
+    Serial.print(", Stop Button: "); Serial.println(RemoteXY.button_stop);
   }
+
+  // 決定馬達指令
+  char command = 'S'; // 預設停止
   if (RemoteXY.connect_flag) {
     if (RemoteXY.button_stop == 1) {
-      stopMotors();
-      Serial.println("Stop button pressed");
-      return;
-    }
-    int speed = map(max(abs(RemoteXY.joystick_y), abs(RemoteXY.joystick_x)), 0, 100, 0, 255);
-    Serial.print("Speed: "); Serial.println(speed);
-    if (RemoteXY.joystick_y > 10) { // Lower threshold
-      goForward(speed);
-      Serial.println("Forward");
-    } else if (RemoteXY.joystick_y < -10) {
-      goBackward(speed);
-      Serial.println("Backward");
-    } else if (RemoteXY.joystick_x < -10) {
-      turnLeft(speed);
-      Serial.println("Left");
-    } else if (RemoteXY.joystick_x > 10) {
-      turnRight(speed);
-      Serial.println("Right");
+      command = 'S'; // 停止按鈕優先
     } else {
-      stopMotors();
-      Serial.println("Stopped");
+      // 根據搖桿位置設定指令
+      if (RemoteXY.joystick_y > 10) {
+        command = 'F'; // 前進
+      } else if (RemoteXY.joystick_y < -10) {
+        command = 'B'; // 後退
+      } else if (RemoteXY.joystick_x < -10) {
+        command = 'L'; // 左轉
+      } else if (RemoteXY.joystick_x > 10) {
+        command = 'R'; // 右轉
+      }
     }
-  } else {
-    stopMotors();
-    Serial.println("Stopped (Disconnected)");
+  }
+
+  // 使用 switch 處理馬達控制
+  int speed = RemoteXY.connect_flag ? map(max(abs(RemoteXY.joystick_y), abs(RemoteXY.joystick_x)), 0, 100, 0, 255) : 0;
+  Serial.print("Command: "); Serial.print(command);
+  Serial.print(", Speed: "); Serial.println(speed);
+  switch (command) {
+    case 'F': // 前進
+      goForward(speed);
+      Serial.println("Going Forward");
+      break;
+    case 'B': // 後退
+      goBackward(speed);
+      Serial.println("Going Backward");
+      break;
+    case 'L': // 左轉
+      turnLeft(speed);
+      Serial.println("Turning Left");
+      break;
+    case 'R': // 右轉
+      turnRight(speed);
+      Serial.println("Turning Right");
+      break;
+    case 'S': // 停止
+    default: // 未連線或無效指令
+      stopMotors();
+      Serial.println(RemoteXY.connect_flag ? "Stopped" : "Stopped (Disconnected)");
+      break;
   }
   delay(10);
 }
 
+// 馬達控制函式
 void stopMotors() {
   digitalWrite(IN1, LOW);
   digitalWrite(IN2, LOW);
@@ -106,7 +139,9 @@ void goForward(int speed) {
   digitalWrite(IN2, LOW);
   analogWrite(IN3, speed);
   digitalWrite(IN4, LOW);
-  Serial.print("Forward: IN1="); Serial.print(speed); Serial.println(", IN2=0, IN3="); Serial.print(speed); Serial.println(", IN4=0");
+  Serial.print("Forward: IN1="); Serial.print(speed);
+  Serial.print(", IN2=0, IN3="); Serial.print(speed);
+  Serial.println(", IN4=0");
 }
 
 void goBackward(int speed) {
@@ -114,7 +149,8 @@ void goBackward(int speed) {
   analogWrite(IN2, speed);
   digitalWrite(IN3, LOW);
   analogWrite(IN4, speed);
-  Serial.print("Backward: IN1=0, IN2="); Serial.print(speed); Serial.println(", IN3=0, IN4="); Serial.println(speed);
+  Serial.print("Backward: IN1=0, IN2="); Serial.print(speed);
+  Serial.print(", IN3=0, IN4="); Serial.println(speed);
 }
 
 void turnLeft(int speed) {
@@ -122,7 +158,9 @@ void turnLeft(int speed) {
   analogWrite(IN2, speed);
   analogWrite(IN3, speed);
   digitalWrite(IN4, LOW);
-  Serial.print("Left: IN1=0, IN2="); Serial.print(speed); Serial.println(", IN3="); Serial.print(speed); Serial.println(", IN4=0");
+  Serial.print("Left: IN1=0, IN2="); Serial.print(speed);
+  Serial.print(", IN3="); Serial.print(speed);
+  Serial.println(", IN4=0");
 }
 
 void turnRight(int speed) {
@@ -130,5 +168,6 @@ void turnRight(int speed) {
   digitalWrite(IN2, LOW);
   digitalWrite(IN3, LOW);
   analogWrite(IN4, speed);
-  Serial.print("Right: IN1="); Serial.print(speed); Serial.println(", IN2=0, IN3=0, IN4="); Serial.println(speed);
+  Serial.print("Right: IN1="); Serial.print(speed);
+  Serial.print(", IN2=0, IN3=0, IN4="); Serial.println(speed);
 }
