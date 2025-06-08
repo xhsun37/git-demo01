@@ -29,7 +29,7 @@ struct { // 控制介面變數
 #pragma pack(pop)
 
 #define IN1 14 // L298N 控制腳位
-#define IN2 17
+#define IN2 27
 #define IN3 26
 #define IN4 25
 
