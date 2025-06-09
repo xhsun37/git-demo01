@@ -1,6 +1,6 @@
 /*
    -- Bluetooth Classic Control for RC Car (ESP32) --
-   Receives commands from Android app via BluetoothSerial.
+   Receives commands from Android app or Serial Bluetooth Terminal via BluetoothSerial.
    Commands:
      - '1': Forward
      - '2': Right
@@ -11,7 +11,7 @@
      - 'S': Stop
      - 'R': Reset to low speed
    Hardware: ESP32-WROOM-32D, L298N, 2 DC motors, 7.4V battery, USB power
-   Pinout: IN1: GPIO 14, IN2: GPIO 27, IN3: GPIO 26, IN4: GPIO 25
+   Pinout: IN1: GPIO 14, IN2: GPIO 27, IN3: GPIO 26, IN4: GPIO 25, ENA: GPIO 12, ENB: GPIO 13
 */
 
 #include <BluetoothSerial.h>
@@ -19,10 +19,12 @@
 BluetoothSerial SerialBT;
 
 // 馬達控制腳位定義
-#define IN1 14 // 左馬達 IN1
-#define IN2 27 // 左馬達 IN2
-#define IN3 26 // 右馬達 IN3
-#define IN4 25 // 右馬達 IN4
+#define IN1 14  // 左馬達 IN1
+#define IN2 27  // 左馬達 IN2
+#define IN3 26  // 右馬達 IN3
+#define IN4 25  // 右馬達 IN4
+#define ENA 12  // 左馬達使能 (PWM)
+#define ENB 13  // 右馬達使能 (PWM)
 
 // 速度模式
 int speed = 180; // 初始低速
@@ -36,6 +38,7 @@ void setup() {
 
   // 初始化藍牙
   SerialBT.begin("zh1h3ng"); // 設備名稱
+  SerialBT.setTimeout(5); // 縮短逾時，加快響應
   Serial.println("Bluetooth initialized. Waiting for connection... MAC: " + SerialBT.getBtAddressString());
 
   // 設定馬達腳位
@@ -43,6 +46,8 @@ void setup() {
   pinMode(IN2, OUTPUT);
   pinMode(IN3, OUTPUT);
   pinMode(IN4, OUTPUT);
+  pinMode(ENA, OUTPUT);
+  pinMode(ENB, OUTPUT);
 
   // 初始化馬達停止
   Stop();
@@ -58,20 +63,24 @@ void loop() {
     Serial.println(isConnected ? "Connected" : "Disconnected");
     if (!isConnected) {
       Stop();
+      SerialBT.flush(); // 清除緩衝區
     }
   }
 
   // 若未連線，等待
   if (!isConnected) {
-    delay(500);
+    delay(100); // 縮短等待時間
     return;
   }
 
   // 處理藍牙數據
-  while (SerialBT.available()) {
+  if (SerialBT.available()) {
     char c = SerialBT.read();
     Serial.print("Received command: ");
     Serial.println(c);
+
+    // 每次指令前重置馬達
+    Stop();
 
     if (c == 'S' || c == '6') { // 停止指令
       Stop();
@@ -107,47 +116,58 @@ void loop() {
           break;
       }
     }
-    delay(10); // 短延遲，確保穩定
+    // 清除剩餘緩衝區數據
+    while (SerialBT.available()) {
+      SerialBT.read();
+    }
+    SerialBT.flush(); // 確保緩衝區清空
+    delay(5); // 縮短延遲，加快響應
   }
 }
 
 // 馬達控制函式
 void Forward() {
-  analogWrite(IN1, speed - 15); // 左馬達稍慢
+  digitalWrite(IN1, HIGH);
   digitalWrite(IN2, LOW);
-  analogWrite(IN3, speed);
+  digitalWrite(IN3, HIGH);
   digitalWrite(IN4, LOW);
-  Serial.print("Forward: IN1="); Serial.print(speed - 15);
-  Serial.print(", IN2=0, IN3="); Serial.print(speed);
-  Serial.println(", IN4=0");
+  analogWrite(ENA, speed - 15); // 左馬達稍慢
+  analogWrite(ENB, speed);
+  Serial.print("Forward: IN1=H, IN2=L, IN3=H, IN4=L, ENA="); Serial.print(speed - 15);
+  Serial.print(", ENB="); Serial.println(speed);
 }
 
 void Back() {
   digitalWrite(IN1, LOW);
-  analogWrite(IN2, speed - 15);
+  digitalWrite(IN2, HIGH);
   digitalWrite(IN3, LOW);
-  analogWrite(IN4, speed);
-  Serial.print("Backward: IN1=0, IN2="); Serial.print(speed - 15);
-  Serial.print(", IN3=0, IN4="); Serial.println(speed);
+  digitalWrite(IN4, HIGH);
+  analogWrite(ENA, speed - 15); // 左馬達稍慢
+  analogWrite(ENB, speed);
+  Serial.print("Backward: IN1=L, IN2=H, IN3=L, IN4=H, ENA="); Serial.print(speed - 15);
+  Serial.print(", ENB="); Serial.println(speed);
 }
 
 void Left() {
   digitalWrite(IN1, LOW);
-  analogWrite(IN2, speed);
-  analogWrite(IN3, speed);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, HIGH);
   digitalWrite(IN4, LOW);
-  Serial.print("Left: IN1=0, IN2="); Serial.print(speed);
-  Serial.print(", IN3="); Serial.print(speed);
-  Serial.println(", IN4=0");
+  analogWrite(ENA, speed);
+  analogWrite(ENB, speed);
+  Serial.print("Left: IN1=L, IN2=H, IN3=H, IN4=L, ENA="); Serial.print(speed);
+  Serial.print(", ENB="); Serial.println(speed);
 }
 
 void Right() {
-  analogWrite(IN1, speed - 20); // 左馬達稍慢
+  digitalWrite(IN1, HIGH);
   digitalWrite(IN2, LOW);
   digitalWrite(IN3, LOW);
-  analogWrite(IN4, speed);
-  Serial.print("Right: IN1="); Serial.print(speed - 20);
-  Serial.print(", IN2=0, IN3=0, IN4="); Serial.println(speed);
+  digitalWrite(IN4, HIGH);
+  analogWrite(ENA, speed - 20); // 左馬達稍慢
+  analogWrite(ENB, speed);
+  Serial.print("Right: IN1=H, IN2=L, IN3=L, IN4=H, ENA="); Serial.print(speed - 20);
+  Serial.print(", ENB="); Serial.println(speed);
 }
 
 void Stop() {
@@ -155,7 +175,9 @@ void Stop() {
   digitalWrite(IN2, LOW);
   digitalWrite(IN3, LOW);
   digitalWrite(IN4, LOW);
-  Serial.println("Motors: IN1=0, IN2=0, IN3=0, IN4=0");
+  analogWrite(ENA, 0);
+  analogWrite(ENB, 0);
+  Serial.println("Motors: IN1=L, IN2=L, IN3=L, IN4=L, ENA=0, ENB=0");
 }
 
 void Change_Speed_And_Print() {
